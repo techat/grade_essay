@@ -6,7 +6,7 @@ import numpy as np
 import re
 import nltk
 import sys
-from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 import pickle
 import os
 from itertools import chain
@@ -169,13 +169,16 @@ class FeatureExtractor(object):
         bag_feats = self.gen_bag_feats(e_set)
         length_feats = self.gen_length_feats(e_set)
         prompt_feats = self.gen_prompt_feats(e_set)
-        overall_feats = np.concatenate((length_feats, prompt_feats, bag_feats), axis=1)
+        similarity_feats = self.gen_similarity_feats(e_set)
+        overall_feats = np.concatenate((length_feats, prompt_feats, similarity_feats, bag_feats), axis=1)
         overall_feats = overall_feats.copy()
 
         #print "The bag feats shape is: ", bag_feats.shape
         #print "The length feats shape is: ", length_feats.shape
         #print "The prompt feats shape is: ", prompt_feats.shape
-        #print prompt_feats
+        print "The prompt_feats are: ", prompt_feats
+        #print "The similarity feats shape is: ", similarity_feats.shape
+        print "The similarity_feats is: ", similarity_feats
         return overall_feats
 
     def gen_prompt_feats(self, e_set):
@@ -211,6 +214,40 @@ class FeatureExtractor(object):
         prompt_arr = np.array((prompt_overlap, prompt_overlap_prop, expand_overlap, expand_overlap_prop)).transpose()
 
         return prompt_arr.copy()
+
+    def gen_similarity_feats(self, e_set):
+        def get_excellent_essay(filename):
+            f = open(filename)
+            f.readline()
+            excellent_essay = []
+            for row in f:
+                row = row.strip().split("\t")
+                essay_set = row[1]
+                # Only test set 1 
+                if essay_set in ['3', '4', '5', '6']:
+                    continue
+                essay = row[2]
+                domain1_score = int(row[6])
+                if essay_set == "1" and domain1_score <= 11:
+                    continue
+                if essay_set == "7" and domain1_score <= 28:
+                    continue
+                if essay_set == "8" and domain1_score <= 55:
+                    continue
+                if essay_set == "2" and domain1_score <= 5:
+                    continue
+                excellent_essay.append(essay)
+
+            return excellent_essay
+        excellent_essay = get_excellent_essay('./data/hewlett/training_set_rel3.tsv')
+        num_excellent_essay = len(excellent_essay)
+        prompt_toks = nltk.word_tokenize(e_set._prompt)
+        
+        vect = TfidfVectorizer(min_df=1, decode_error='ignore')
+        documents = [e_set._prompt] + excellent_essay + e_set._clean_text
+        tfidf = vect.fit_transform(documents)
+        similarity = (tfidf * tfidf.T).toarray()[0][num_excellent_essay+1 : ].reshape(-1, 1)
+        return similarity
 
     def gen_feedback(self, e_set, features=None):
         """
